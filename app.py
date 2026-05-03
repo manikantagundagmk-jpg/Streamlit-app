@@ -1,5 +1,5 @@
 # ============================================================================
-# VAALUKA VLSI AI - FIXED VERSION
+# VAALUKA VLSI AI - WITH MODEL SELECTION & FIXED TABLE NAME
 # ============================================================================
 
 import streamlit as st
@@ -20,6 +20,15 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ================= GROQ MODELS =================
+AVAILABLE_MODELS = {
+    "Llama 3.3 70B (Versatile)": "llama-3.3-70b-versatile",
+    "Llama 3.1 70B (Versatile)": "llama-3.1-70b-versatile",
+    "Llama 3.1 8B (Fast)": "llama-3.1-8b-instant",
+    "Mixtral 8x7B": "mixtral-8x7b-32768",
+    "Gemma 2 9B": "gemma2-9b-it",
+}
 
 SYSTEM_PROMPT = """You are a senior VLSI verification engineer with deep expertise in:
 SystemVerilog, UVM, AXI, PCIe.
@@ -113,20 +122,25 @@ if not st.session_state.user:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ================= DB (FIXED) =================
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = "llama-3.3-70b-versatile"
+
+# ================= DB (FIXED - lowercase table name) =================
 def save_chat(messages):
     try:
         data = {
             "user": st.session_state.user.id,
             "messages": messages
         }
-        supabase.table("Chats").upsert(data).execute()
+        # FIXED: Changed "Chats" to "chats" (lowercase)
+        supabase.table("chats").upsert(data).execute()
     except Exception as e:
         st.error(f"Error saving chat: {str(e)}")
 
 def load_chat():
     try:
-        res = supabase.table("Chats").select("*").eq(
+        # FIXED: Changed "Chats" to "chats" (lowercase)
+        res = supabase.table("chats").select("*").eq(
             "user", st.session_state.user.id
         ).execute()
 
@@ -139,16 +153,44 @@ def load_chat():
         print(f"Load chat error (non-critical): {str(e)}")
         return []
 
-# ================= UI =================
-st.title("⚡ Vaaluka VLSI AI Assistant")
-
-# Logout button in sidebar
+# ================= SIDEBAR =================
 with st.sidebar:
-    st.write(f"👤 Logged in as: {st.session_state.user.email}")
-    if st.button("Logout"):
+    st.write(f"👤 **User:** {st.session_state.user.email}")
+    
+    st.markdown("---")
+    
+    # Model Selection
+    st.subheader("🤖 Select AI Model")
+    
+    model_display_name = st.selectbox(
+        "Choose Model:",
+        options=list(AVAILABLE_MODELS.keys()),
+        index=0,
+        help="Different models for different needs:\n- Llama 3.3 70B: Most capable\n- Llama 3.1 8B: Fastest responses\n- Mixtral: Good for reasoning\n- Gemma 2: Balanced performance"
+    )
+    
+    st.session_state.selected_model = AVAILABLE_MODELS[model_display_name]
+    
+    st.info(f"**Current Model:**\n`{st.session_state.selected_model}`")
+    
+    st.markdown("---")
+    
+    # Clear Chat History
+    if st.button("🗑️ Clear Chat History"):
+        st.session_state.messages = []
+        st.success("Chat cleared!")
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # Logout
+    if st.button("🚪 Logout"):
         st.session_state.user = None
         st.session_state.messages = []
         st.rerun()
+
+# ================= UI =================
+st.title("⚡ Vaaluka VLSI AI Assistant")
 
 # Load chat history only once
 if not st.session_state.messages:
@@ -182,26 +224,30 @@ if user_input:
     )
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": f"{context}\n\nQuestion: {user_input}"
-                    }
-                ],
-                max_tokens=1024
-            )
+        with st.spinner(f"Thinking with {st.session_state.selected_model}..."):
+            try:
+                response = client.chat.completions.create(
+                    model=st.session_state.selected_model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": f"{context}\n\nQuestion: {user_input}"
+                        }
+                    ],
+                    max_tokens=1024
+                )
 
-            reply = response.choices[0].message.content
+                reply = response.choices[0].message.content
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": reply
-            })
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": reply
+                })
 
-            save_chat(st.session_state.messages)
+                save_chat(st.session_state.messages)
 
-            st.markdown(reply)
+                st.markdown(reply)
+                
+            except Exception as e:
+                st.error(f"Error generating response: {str(e)}")
