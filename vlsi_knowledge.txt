@@ -1,0 +1,90 @@
+Blocking vs Non-Blocking Assignments (SystemVerilog)
+1. Blocking Assignment (=)
+Executes statements sequentially (one after another)
+Each statement completes before the next begins
+Immediate assignment (LHS updated instantly)
+Used for combinational logic
+
+Example:
+always @(posedge clk) begin
+a = b;
+c = a;
+end
+
+Result:
+c gets updated value of a → c = b
+
+2. Non-Blocking Assignment (<=)
+Executes statements in parallel
+RHS evaluated immediately, LHS updated later (end of time step)
+Used for sequential logic (flip-flops)
+
+Example:
+always @(posedge clk) begin
+a <= b;
+c <= a;
+end
+
+Result:
+c gets old value of a
+
+3. Key Difference
+Blocking: Immediate update, sequential execution
+Non-blocking: Scheduled update, parallel execution
+4. Timing Behavior
+
+Blocking (=):
+
+Updates happen instantly within the same time step
+
+Non-blocking (<=):
+
+RHS evaluated in current time step
+LHS updated in NBA (Non-blocking Assignment) region
+5. Usage Guidelines
+Use blocking (=) in combinational logic (always_comb)
+Use non-blocking (<=) in sequential logic (always_ff)
+6. Golden Rule
+Do NOT mix blocking and non-blocking assignments in the same always block
+Mixing can cause race conditions and simulation mismatches
+7. Race Condition Example (Wrong)
+
+always @(posedge clk) begin
+a = b;
+b = a;
+end
+
+Order dependent → incorrect hardware modeling
+
+Correct:
+always @(posedge clk) begin
+a <= b;
+b <= a;
+end
+
+Values swap correctly using old values
+8. Pipeline Example (Non-blocking)
+
+always @(posedge clk) begin
+stage1 <= in;
+stage2 <= stage1;
+stage3 <= stage2;
+end
+
+Data flows across clock cycles (pipeline behavior)
+9. Simulation Regions
+Blocking executes in Active region
+Non-blocking updates occur in NBA region
+10. Summary Table
+Feature Blocking (=) Non-blocking (<=)
+
+Execution Sequential Parallel
+Update Immediate End of timestep
+Use case Combinational Sequential
+Race safe No Yes
+Hardware modeling Risky Accurate
+
+11. One-Line Summary
+
+Blocking (=) → sequential software-like behavior
+Non-blocking (<=) → parallel hardware-like behavior
