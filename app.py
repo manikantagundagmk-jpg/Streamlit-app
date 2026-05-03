@@ -1,16 +1,11 @@
 # ============================================================================
-# VAALUKA VLSI AI - FINAL CLEAN VERSION (NO HEAVY ML)
+# VAALUKA VLSI AI - FINAL STABLE VERSION (NO SKLEARN)
 # ============================================================================
 
 import streamlit as st
 from openai import OpenAI
-import numpy as np
 from supabase import create_client
 import os
-from datetime import datetime
-import uuid
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # ================= PAGE CONFIG =================
 st.set_page_config(
@@ -47,26 +42,21 @@ def load_knowledge():
     return [c.strip() for c in text.split("\n\n") if c.strip()]
 
 
-@st.cache_resource
-def build_vector_db(chunks):
-    vectorizer = TfidfVectorizer()
-    vectors = vectorizer.fit_transform(chunks)
-    return vectorizer, vectors
-
-
 knowledge_chunks = load_knowledge()
-vectorizer, vectors = build_vector_db(knowledge_chunks)
 
-# ================= RAG =================
+# ================= LIGHTWEIGHT RAG =================
 def retrieve(query, k=3):
     results = []
+    query_words = query.lower().split()
 
     for chunk in knowledge_chunks:
-        if query.lower() in chunk.lower():
-            results.append(chunk)
+        score = sum(1 for word in query_words if word in chunk.lower())
+        if score > 0:
+            results.append((score, chunk))
 
-    return "\n\n".join(results[:k])
+    results = sorted(results, key=lambda x: x[0], reverse=True)
 
+    return "\n\n".join([chunk for _, chunk in results[:k]])
 
 # ================= AUTH =================
 if "user" not in st.session_state:
@@ -88,14 +78,9 @@ if not st.session_state.user:
 
     st.stop()
 
-
 # ================= CHAT STATE =================
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
-if "conversation_id" not in st.session_state:
-    st.session_state.conversation_id = None
-
 
 # ================= DB =================
 def save_chat(messages):
@@ -104,7 +89,6 @@ def save_chat(messages):
         "messages": messages
     }
     supabase.table("Chats").upsert(data).execute()
-
 
 def load_chat():
     res = supabase.table("Chats").select("*").eq(
@@ -116,19 +100,15 @@ def load_chat():
 
     return []
 
-
 # ================= UI =================
 st.title("⚡ Vaaluka VLSI AI Assistant")
 
-# Load chat on start
 if not st.session_state.messages:
     st.session_state.messages = load_chat()
 
-# Show chat
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-
 
 # ================= INPUT =================
 user_input = st.chat_input("Ask your VLSI question...")
@@ -142,8 +122,10 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # RAG
     context = retrieve(user_input)
+
+    if not context:
+        context = "No specific knowledge found. Answer generally."
 
     client = OpenAI(
         api_key=GROQ_API_KEY,
