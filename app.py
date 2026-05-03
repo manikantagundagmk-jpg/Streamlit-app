@@ -1,5 +1,5 @@
 # ============================================================================
-# VAALUKA VLSI AI - FINAL STABLE VERSION (NO SKLEARN)
+# VAALUKA VLSI AI - FIXED VERSION
 # ============================================================================
 
 import streamlit as st
@@ -63,18 +63,49 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 if not st.session_state.user:
-    st.title("🔐 Login")
-
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        res = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        st.session_state.user = res.user
-        st.rerun()
+    st.title("🔐 Vaaluka VLSI AI - Authentication")
+    
+    # Tab selection for Login/Signup
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    with tab1:
+        st.subheader("Login to Your Account")
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        
+        if st.button("Login", key="login_btn"):
+            try:
+                res = supabase.auth.sign_in_with_password({
+                    "email": email,
+                    "password": password
+                })
+                st.session_state.user = res.user
+                st.success("✅ Login successful!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Login failed: {str(e)}")
+    
+    with tab2:
+        st.subheader("Create New Account")
+        signup_email = st.text_input("Email", key="signup_email")
+        signup_password = st.text_input("Password (min 6 characters)", type="password", key="signup_password")
+        signup_password_confirm = st.text_input("Confirm Password", type="password", key="signup_confirm")
+        
+        if st.button("Sign Up", key="signup_btn"):
+            if signup_password != signup_password_confirm:
+                st.error("❌ Passwords do not match!")
+            elif len(signup_password) < 6:
+                st.error("❌ Password must be at least 6 characters!")
+            else:
+                try:
+                    res = supabase.auth.sign_up({
+                        "email": signup_email,
+                        "password": signup_password
+                    })
+                    st.success("✅ Account created! Please check your email to verify your account.")
+                    st.info("After verification, use the Login tab to sign in.")
+                except Exception as e:
+                    st.error(f"❌ Signup failed: {str(e)}")
 
     st.stop()
 
@@ -82,30 +113,48 @@ if not st.session_state.user:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ================= DB =================
+# ================= DB (FIXED) =================
 def save_chat(messages):
-    data = {
-        "user": st.session_state.user.id,
-        "messages": messages
-    }
-    supabase.table("Chats").upsert(data).execute()
+    try:
+        data = {
+            "user": st.session_state.user.id,
+            "messages": messages
+        }
+        supabase.table("Chats").upsert(data).execute()
+    except Exception as e:
+        st.error(f"Error saving chat: {str(e)}")
 
 def load_chat():
-    res = supabase.table("Chats").select("*").eq(
-        "user", st.session_state.user.id
-    ).execute()
+    try:
+        res = supabase.table("Chats").select("*").eq(
+            "user", st.session_state.user.id
+        ).execute()
 
-    if res.data:
-        return res.data[0]["messages"]
-
-    return []
+        if res.data and len(res.data) > 0:
+            return res.data[0]["messages"]
+        
+        return []
+    except Exception as e:
+        # If table is empty or query fails, return empty list
+        print(f"Load chat error (non-critical): {str(e)}")
+        return []
 
 # ================= UI =================
 st.title("⚡ Vaaluka VLSI AI Assistant")
 
+# Logout button in sidebar
+with st.sidebar:
+    st.write(f"👤 Logged in as: {st.session_state.user.email}")
+    if st.button("Logout"):
+        st.session_state.user = None
+        st.session_state.messages = []
+        st.rerun()
+
+# Load chat history only once
 if not st.session_state.messages:
     st.session_state.messages = load_chat()
 
+# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -132,26 +181,27 @@ if user_input:
         base_url="https://api.groq.com/openai/v1"
     )
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"{context}\n\nQuestion: {user_input}"
-            }
-        ],
-        max_tokens=1024
-    )
-
-    reply = response.choices[0].message.content
-
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": reply
-    })
-
-    save_chat(st.session_state.messages)
-
     with st.chat_message("assistant"):
-        st.markdown(reply)
+        with st.spinner("Thinking..."):
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"{context}\n\nQuestion: {user_input}"
+                    }
+                ],
+                max_tokens=1024
+            )
+
+            reply = response.choices[0].message.content
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": reply
+            })
+
+            save_chat(st.session_state.messages)
+
+            st.markdown(reply)
