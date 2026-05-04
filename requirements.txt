@@ -21,6 +21,3 @@ python-dotenv==1.0.1
 # PDF Processing - Extract text and tables from PDFs
 pypdf==4.3.1
 pdfplumber==0.10.3
-
-# Optional: For better PDF table extraction
-pandas==2.1.4
