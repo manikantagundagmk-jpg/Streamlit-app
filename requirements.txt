@@ -1,17 +1,13 @@
 # ============================================================================
-# VAALUKA VLSI AI - Python Dependencies (UPDATED)
+# VAALUKA VLSI AI - Python Dependencies (FIXED DEPENDENCY CONFLICT)
 # ============================================================================
 # Install with: pip install -r requirements.txt
 
 # Web Framework - Streamlit for building the chat UI
 streamlit==1.40.1
-a# ============================================================================
-# VAALUKA VLSI AI - Python Dependencies (WITH PDF SUPPORT)
-# ============================================================================
-# Install with: pip install -r requirements.txt
 
-# Web Framework - Streamlit for building the chat UI
-streamlit==1.40.1
+# Fix dependency conflict - Streamlit requires rich<14
+rich<14,>=10.14.0
 
 # Groq API Client - OpenAI-compatible client for Groq API
 openai==1.65.0
@@ -31,14 +27,3 @@ pdfplumber==0.11.4
 
 # Optional: For better PDF table extraction
 pandas==2.2.3
-# Groq API Client - OpenAI-compatible client for Groq API
-openai==1.65.0
-
-# Database - Supabase Python client for authentication and database
-supabase==2.7.2
-
-# Environment Variables - Load .env files for API keys
-python-dotenv==1.0.1
-
-# Numerical Computing - NumPy for vector operations
-numpy==1.26.4
