@@ -5,7 +5,32 @@
 
 # Web Framework - Streamlit for building the chat UI
 streamlit==1.40.1
+a# ============================================================================
+# VAALUKA VLSI AI - Python Dependencies (WITH PDF SUPPORT)
+# ============================================================================
+# Install with: pip install -r requirements.txt
 
+# Web Framework - Streamlit for building the chat UI
+streamlit==1.40.1
+
+# Groq API Client - OpenAI-compatible client for Groq API
+openai==1.65.0
+
+# Database - Supabase Python client for authentication and database
+supabase==2.7.2
+
+# Environment Variables - Load .env files for API keys
+python-dotenv==1.0.1
+
+# Numerical Computing - NumPy for vector operations
+numpy==1.26.4
+
+# PDF Processing - Extract text and tables from PDFs
+pypdf==5.1.0
+pdfplumber==0.11.4
+
+# Optional: For better PDF table extraction
+pandas==2.2.3
 # Groq API Client - OpenAI-compatible client for Groq API
 openai==1.65.0
 
