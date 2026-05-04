@@ -1,11 +1,13 @@
 # ============================================================================
-# VAALUKA VLSI AI - WITH MODEL SELECTION & FIXED TABLE NAME
+# VAALUKA VLSI AI - WITH PDF UPLOAD & IMPROVED RAG
 # ============================================================================
 
 import streamlit as st
 from openai import OpenAI
 from supabase import create_client
 import os
+from pypdf import PdfReader
+import pdfplumber
 
 # ================= PAGE CONFIG =================
 st.set_page_config(
@@ -31,16 +33,21 @@ AVAILABLE_MODELS = {
 }
 
 SYSTEM_PROMPT = """You are a senior VLSI verification engineer with deep expertise in:
-SystemVerilog, UVM, AXI, PCIe.
+SystemVerilog, UVM, AXI, PCIe, timing analysis, and digital design.
 
-Give:
-- Clear explanations
-- Code examples
-- Practical insights
+When answering:
+- Provide clear, detailed explanations
+- Include code examples in SystemVerilog/UVM when relevant
+- Reference industry best practices
+- Cite specific sections from provided documentation when available
+- Be precise with technical terminology
+
+If relevant context is provided from uploaded documents, reference it specifically.
 """
 
 # ================= KNOWLEDGE BASE =================
 def load_knowledge():
+    """Load default knowledge base"""
     if not os.path.exists("vlsi_knowledge.txt"):
         with open("vlsi_knowledge.txt", "w") as f:
             f.write("Blocking vs non-blocking assignments explanation")
@@ -50,31 +57,93 @@ def load_knowledge():
 
     return [c.strip() for c in text.split("\n\n") if c.strip()]
 
+def extract_text_from_pdf(uploaded_file):
+    """Extract text from uploaded PDF file"""
+    try:
+        # Save uploaded file temporarily
+        temp_path = f"/tmp/{uploaded_file.name}"
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        # Try pdfplumber first (better for structured content)
+        text_chunks = []
+        try:
+            with pdfplumber.open(temp_path) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    page_text = page.extract_text()
+                    if page_text:
+                        # Split into chunks by paragraphs
+                        paragraphs = [p.strip() for p in page_text.split('\n\n') if p.strip()]
+                        text_chunks.extend(paragraphs)
+        except:
+            # Fallback to pypdf
+            reader = PdfReader(temp_path)
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    paragraphs = [p.strip() for p in page_text.split('\n\n') if p.strip()]
+                    text_chunks.extend(paragraphs)
+        
+        # Clean up
+        os.remove(temp_path)
+        
+        return text_chunks
+    except Exception as e:
+        st.error(f"Error reading PDF: {str(e)}")
+        return []
 
-knowledge_chunks = load_knowledge()
-
-# ================= LIGHTWEIGHT RAG =================
-def retrieve(query, k=3):
-    results = []
-    query_words = query.lower().split()
-
-    for chunk in knowledge_chunks:
-        score = sum(1 for word in query_words if word in chunk.lower())
-        if score > 0:
-            results.append((score, chunk))
-
-    results = sorted(results, key=lambda x: x[0], reverse=True)
-
-    return "\n\n".join([chunk for _, chunk in results[:k]])
-
-# ================= AUTH =================
+# ================= SESSION STATE INITIALIZATION =================
 if "user" not in st.session_state:
     st.session_state.user = None
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = "llama-3.3-70b-versatile"
+
+if "knowledge_chunks" not in st.session_state:
+    st.session_state.knowledge_chunks = load_knowledge()
+
+if "uploaded_pdfs" not in st.session_state:
+    st.session_state.uploaded_pdfs = []
+
+# ================= IMPROVED RAG =================
+def retrieve(query, k=5):
+    """Retrieve relevant context from knowledge base"""
+    if not st.session_state.knowledge_chunks:
+        return "No knowledge base loaded."
+    
+    results = []
+    query_words = set(query.lower().split())
+    
+    for chunk in st.session_state.knowledge_chunks:
+        chunk_words = set(chunk.lower().split())
+        
+        # Calculate overlap score
+        overlap = len(query_words.intersection(chunk_words))
+        
+        # Bonus for exact phrase matches
+        if query.lower() in chunk.lower():
+            overlap += 10
+        
+        if overlap > 0:
+            results.append((overlap, chunk))
+    
+    # Sort by relevance
+    results = sorted(results, key=lambda x: x[0], reverse=True)
+    
+    # Return top k results
+    relevant_chunks = [chunk for _, chunk in results[:k]]
+    
+    if relevant_chunks:
+        return "\n\n---\n\n".join(relevant_chunks)
+    return "No specific knowledge found. Answer based on your general VLSI expertise."
+
+# ================= AUTH =================
 if not st.session_state.user:
     st.title("🔐 Vaaluka VLSI AI - Authentication")
     
-    # Tab selection for Login/Signup
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
     
     with tab1:
@@ -118,28 +187,19 @@ if not st.session_state.user:
 
     st.stop()
 
-# ================= CHAT STATE =================
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = "llama-3.3-70b-versatile"
-
-# ================= DB (FIXED - lowercase table name) =================
+# ================= DB =================
 def save_chat(messages):
     try:
         data = {
             "user": st.session_state.user.id,
             "messages": messages
         }
-        # FIXED: Changed "Chats" to "chats" (lowercase)
         supabase.table("chats").upsert(data).execute()
     except Exception as e:
         st.error(f"Error saving chat: {str(e)}")
 
 def load_chat():
     try:
-        # FIXED: Changed "Chats" to "chats" (lowercase)
         res = supabase.table("chats").select("*").eq(
             "user", st.session_state.user.id
         ).execute()
@@ -149,7 +209,6 @@ def load_chat():
         
         return []
     except Exception as e:
-        # If table is empty or query fails, return empty list
         print(f"Load chat error (non-critical): {str(e)}")
         return []
 
@@ -160,22 +219,54 @@ with st.sidebar:
     st.markdown("---")
     
     # Model Selection
-    st.subheader("🤖 Select AI Model")
-    
+    st.subheader("🤖 AI Model")
     model_display_name = st.selectbox(
         "Choose Model:",
         options=list(AVAILABLE_MODELS.keys()),
         index=0,
-        help="Different models for different needs:\n- Llama 3.3 70B: Most capable\n- Llama 3.1 8B: Fastest responses\n- Mixtral: Good for reasoning\n- Gemma 2: Balanced performance"
+        help="Different models for different needs"
     )
-    
     st.session_state.selected_model = AVAILABLE_MODELS[model_display_name]
-    
-    st.info(f"**Current Model:**\n`{st.session_state.selected_model}`")
     
     st.markdown("---")
     
-    # Clear Chat History
+    # PDF Upload Section
+    st.subheader("📚 Knowledge Base")
+    
+    uploaded_files = st.file_uploader(
+        "Upload VLSI PDFs/Docs",
+        type=['pdf'],
+        accept_multiple_files=True,
+        help="Upload VLSI textbooks, protocol specs, verification guides, etc."
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            if uploaded_file.name not in st.session_state.uploaded_pdfs:
+                with st.spinner(f"Processing {uploaded_file.name}..."):
+                    new_chunks = extract_text_from_pdf(uploaded_file)
+                    if new_chunks:
+                        st.session_state.knowledge_chunks.extend(new_chunks)
+                        st.session_state.uploaded_pdfs.append(uploaded_file.name)
+                        st.success(f"✅ Added {len(new_chunks)} chunks from {uploaded_file.name}")
+    
+    # Show uploaded PDFs
+    if st.session_state.uploaded_pdfs:
+        st.write("**Loaded Documents:**")
+        for pdf_name in st.session_state.uploaded_pdfs:
+            st.write(f"📄 {pdf_name}")
+    
+    st.info(f"**Total Knowledge:** {len(st.session_state.knowledge_chunks)} chunks")
+    
+    if st.button("🗑️ Clear Uploaded PDFs"):
+        st.session_state.knowledge_chunks = load_knowledge()
+        st.session_state.uploaded_pdfs = []
+        st.success("Cleared uploaded documents!")
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # Clear Chat
     if st.button("🗑️ Clear Chat History"):
         st.session_state.messages = []
         st.success("Chat cleared!")
@@ -187,12 +278,14 @@ with st.sidebar:
     if st.button("🚪 Logout"):
         st.session_state.user = None
         st.session_state.messages = []
+        st.session_state.knowledge_chunks = load_knowledge()
+        st.session_state.uploaded_pdfs = []
         st.rerun()
 
 # ================= UI =================
 st.title("⚡ Vaaluka VLSI AI Assistant")
 
-# Load chat history only once
+# Load chat history
 if not st.session_state.messages:
     st.session_state.messages = load_chat()
 
@@ -205,6 +298,7 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("Ask your VLSI question...")
 
 if user_input:
+    # Add user message
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
@@ -213,11 +307,28 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    context = retrieve(user_input)
+    # Retrieve relevant context
+    context = retrieve(user_input, k=5)
 
-    if not context:
-        context = "No specific knowledge found. Answer generally."
+    # Build conversation history for context
+    conversation_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ]
+    
+    # Add last 10 messages for context (but not the current one)
+    for msg in st.session_state.messages[-11:-1]:
+        conversation_messages.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+    
+    # Add current question with retrieved context
+    conversation_messages.append({
+        "role": "user",
+        "content": f"**Relevant Documentation/Context:**\n{context}\n\n**Question:** {user_input}"
+    })
 
+    # Generate response
     client = OpenAI(
         api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1"
@@ -228,14 +339,9 @@ if user_input:
             try:
                 response = client.chat.completions.create(
                     model=st.session_state.selected_model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"{context}\n\nQuestion: {user_input}"
-                        }
-                    ],
-                    max_tokens=1024
+                    messages=conversation_messages,
+                    max_tokens=4096,  # Increased for longer responses
+                    temperature=0.7
                 )
 
                 reply = response.choices[0].message.content
